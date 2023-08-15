@@ -78,27 +78,46 @@ async def get_user_payment(ctx, user: discord.Member=None):
         await ctx.send(f"Количество баллов за сообщение у {user.mention}: 0")
 
 
+# товары, увеличивающие кол-во баллов за сообщение (первое число (индекс 0) - сколько баллов добавляет,
+# а второе (индекс 1) - сколько стоит)
+assortment = {
+    'garage': (1, 10),
+    'house': (10, 100),
+}
+
+
 # пользователь может купить предмет, увеличивающий кол-во баллов за сообщение (себе или другому человеку)
 @bot.command(name='buy')
-async def buy(ctx, user: discord.Member=None):
-    if not user:
-        user = ctx.author
-    # берём данные покупающего пользователя
-    c.execute("SELECT * FROM users WHERE user_id=?", (ctx.author.id,))
-    buyer = c.fetchone()
-    # если у покупающего баллов больше, чем нужно (или ровно столько), то он может купить
-    if buyer[1] >= 10:
-
-        # забираем баллы у купившего
-        c.execute("UPDATE users SET points=? WHERE user_id=?",(buyer[1] - 10, ctx.author.id))
-
-        # изменяем кол-во баллов за сообщение пользователю
-        c.execute("SELECT * FROM users WHERE user_id=?", (user.id,))
-        user_data = c.fetchone()
-        c.execute("UPDATE users SET payment=? WHERE user_id=?", (user_data[3] + 1, user.id))
-        await ctx.send(f'{ user.name } теперь получает больше баллов за сообщение!')
+async def buy(ctx, user: discord.Member, title: str):
+    if title not in assortment:
+        await ctx.send('Товара с таким названием нет')
     else:
-        await ctx.send('У вас нет нужного количества баллов')
+        if not user:
+            user = ctx.author
+        # берём данные покупающего пользователя
+        c.execute("SELECT * FROM users WHERE user_id=?", (ctx.author.id,))
+        buyer = c.fetchone()
+        # если у покупающего баллов больше, чем нужно (или ровно столько), то он может купить
+        if buyer[1] >= 10:
 
+            # забираем баллы у купившего
+            c.execute("UPDATE users SET points=? WHERE user_id=?", (buyer[1] - assortment[title][1], ctx.author.id))
+
+            # изменяем кол-во баллов за сообщение пользователю
+            c.execute("SELECT * FROM users WHERE user_id=?", (user.id,))
+            user_data = c.fetchone()
+            c.execute("UPDATE users SET payment=? WHERE user_id=?", (user_data[3] + assortment[title][0], user.id))
+            await ctx.send(f'{ user.name } теперь получает больше баллов за сообщение!')
+        else:
+            await ctx.send('У вас нет нужного количества баллов')
+
+
+@bot.command(name='info')
+async def info(ctx):
+    await ctx.reply('Этот бот даёт баллы за сообщение (1 раз в минуту), вы можете увеличить количество баллов,'
+                    ' получаемых за сообщение с помощью команды !buy @user "предмет, который вы хотите купить"'
+                    ' (узнать ассортимент предметов можно с помощью команды !assortment). '
+                    ' Чтобы узнать количество баллов используй команду !points @user.'
+                    ' Чтобы узнать количество баллов, получаемых за сообщение используй команду !payment @user.')
 
 bot.run(config.token)
