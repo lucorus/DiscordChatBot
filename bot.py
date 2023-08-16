@@ -18,6 +18,9 @@ c = conn.cursor()
 c.execute('''CREATE TABLE IF NOT EXISTS users
  (user_id INTEGER PRIMARY KEY, points INTEGER, last_message_time INTEGER, payment INTEGER)''')
 
+c.execute('''CREATE TABLE IF NOT EXISTS assortment
+ (title TEXT PRIMARY KEY, upgrade INTEGER, price INTEGER)''')
+
 
 @bot.event
 async def on_message(message):
@@ -100,6 +103,8 @@ async def buy(ctx, user: discord.Member, title: str):
         # если у покупающего баллов больше, чем нужно (или ровно столько), то он может купить
         if buyer[1] >= 10:
 
+            c.execute('SELECT * FROM assortment WHERE title=?', (title, ))
+            print(c.fetchone())
             # забираем баллы у купившего
             c.execute("UPDATE users SET points=? WHERE user_id=?", (buyer[1] - assortment[title][1], ctx.author.id))
 
@@ -119,5 +124,53 @@ async def info(ctx):
                     ' (узнать ассортимент предметов можно с помощью команды !assortment). '
                     ' Чтобы узнать количество баллов используй команду !points @user.'
                     ' Чтобы узнать количество баллов, получаемых за сообщение используй команду !payment @user.')
+
+
+@bot.command(name='add_item')
+async def add_item(ctx, title: str, upgrade: int, price: int):
+    if ctx.author.id == 854253015862607872:
+        c.execute("INSERT INTO assortment VALUES (?, ?, ?)", (title, upgrade, price))
+        await ctx.send(f'Товар с названием { title } был добавлен, его цена = { price }, '
+                       f'он добавляет к получаемым баллам за сообщение { upgrade } баллов ')
+    else:
+        await ctx.send('У вас недостаточно прав для этого действия')
+
+
+@bot.command(name='assortment')
+async def see_assortment(ctx):
+    c.execute("SELECT * FROM assortment")
+    if c.fetchone() == None:
+        await ctx.send('Товаров нет')
+    else:
+        assort = 'Список товаров: \n'
+        for item in c.fetchall():
+            assort += f'{ item[0] } имеет цену { item[2] } и добавляет { item[1] } баллов за сообщение \n'
+        await ctx.send(assort)
+
+
+@bot.command(name='delete_item')
+async def delete_item(ctx, title):
+    if ctx.author.id == 854253015862607872:
+        c.execute("DELETE FROM assortment WHERE title=?", (title, ))
+        await ctx.send('Товар успешно удалён')
+    else:
+        await ctx.send('У вас недостаточно прав для этого действия')
+
+
+# изменяет количество баллов у пользователя (может как увеличить, так и уменьшить)
+@bot.command(name='add_points')
+async def add_points(ctx, number: str, user: discord.Member):
+    if ctx.author.id == 854253015862607872:
+        if number[0] == '-':
+            num = int(number[1:len(number)]) * -1
+        else:
+            num = int(number)
+        c.execute("SELECT * FROM users WHERE user_id=?", (user.id,))
+        user_data = c.fetchone()
+        c.execute("UPDATE users SET points=? WHERE user_id=?", ((user_data[1] + num), user.id))
+        await ctx.send('Действие успешно выполнено!')
+    else:
+        await ctx.send('У вас недостаточно прав для этого действия')
+
 
 bot.run(config.token)
