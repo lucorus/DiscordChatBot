@@ -1,3 +1,4 @@
+import random
 import discord
 from discord.ext import commands
 import asyncio
@@ -92,38 +93,43 @@ assortment = {
 # пользователь может купить предмет, увеличивающий кол-во баллов за сообщение (себе или другому человеку)
 @bot.command(name='buy')
 async def buy(ctx, user: discord.Member, title: str):
-    if title not in assortment:
-        await ctx.send('Товара с таким названием нет')
-    else:
-        if not user:
-            user = ctx.author
-        # берём данные покупающего пользователя
-        c.execute("SELECT * FROM users WHERE user_id=?", (ctx.author.id,))
-        buyer = c.fetchone()
+    if not user:
+        user = ctx.author
+    # берём данные покупающего пользователя
+    c.execute("SELECT * FROM users WHERE user_id=?", (ctx.author.id,))
+    buyer = c.fetchone()
+    # берём данные товара
+    c.execute('SELECT * FROM assortment WHERE title=?', (title,))
+    item = c.fetchone()
+
+    # если такой товар существует, то забираем его стоимость и увеличиваем кол-во баллов за сообщение
+    if item != None:
         # если у покупающего баллов больше, чем нужно (или ровно столько), то он может купить
         if buyer[1] >= 10:
 
-            c.execute('SELECT * FROM assortment WHERE title=?', (title, ))
-            print(c.fetchone())
             # забираем баллы у купившего
-            c.execute("UPDATE users SET points=? WHERE user_id=?", (buyer[1] - assortment[title][1], ctx.author.id))
+            c.execute("UPDATE users SET points=? WHERE user_id=?", (buyer[1] - item[2], ctx.author.id))
 
             # изменяем кол-во баллов за сообщение пользователю
             c.execute("SELECT * FROM users WHERE user_id=?", (user.id,))
             user_data = c.fetchone()
-            c.execute("UPDATE users SET payment=? WHERE user_id=?", (user_data[3] + assortment[title][0], user.id))
-            await ctx.send(f'{ user.name } теперь получает больше баллов за сообщение!')
+
+            c.execute("UPDATE users SET payment=? WHERE user_id=?", (user_data[3] + item[1], user.id))
+            await ctx.send(f'{user.name} теперь получает больше баллов за сообщение!')
         else:
             await ctx.send('У вас нет нужного количества баллов')
+    else:
+        await ctx.send('Товар не найден')
 
 
 @bot.command(name='info')
 async def info(ctx):
     await ctx.reply('Этот бот даёт баллы за сообщение (1 раз в минуту), вы можете увеличить количество баллов,'
                     ' получаемых за сообщение с помощью команды !buy @user "предмет, который вы хотите купить"'
-                    ' (узнать ассортимент предметов можно с помощью команды !assortment). '
-                    ' Чтобы узнать количество баллов используй команду !points @user.'
-                    ' Чтобы узнать количество баллов, получаемых за сообщение используй команду !payment @user.')
+                    ' (узнать ассортимент предметов можно с помощью команды !assortment). \n'
+                    ' Чтобы узнать количество баллов используй команду !points @user. \n'
+                    ' Чтобы узнать количество баллов, получаемых за сообщение используй команду !payment @user. \n'
+                    ' Чтобы попытать удачу в казино нужно использовать команду !casino и написать ставку. \n')
 
 
 @bot.command(name='add_item')
@@ -136,6 +142,7 @@ async def add_item(ctx, title: str, upgrade: int, price: int):
         await ctx.send('У вас недостаточно прав для этого действия')
 
 
+# отображает список товаров (почему-то первый товар не отображается)
 @bot.command(name='assortment')
 async def see_assortment(ctx):
     c.execute("SELECT * FROM assortment")
@@ -171,6 +178,61 @@ async def add_points(ctx, number: str, user: discord.Member):
         await ctx.send('Действие успешно выполнено!')
     else:
         await ctx.send('У вас недостаточно прав для этого действия')
+
+
+# максимальное количество одинаковых цифр в числе
+def max_count_figure(number):
+    number = str(number)
+    max_count = 1
+    for i in range(0, 10):
+        count_number = number.count(str(i))
+        if count_number > max_count:
+            max_count = count_number
+    return max_count
+
+
+# создаёт случайное трёхзначное число, если 2 цифры одинаковые - выигрыш 1.5Х, если 3 одинаковые, то выигрыш = 3Х
+@bot.command(name='casino')
+async def casino(ctx, bet):
+    try:
+        # если ставка не является числом, то будет исключение
+        bet = int(bet)
+        # если ставка = 0, то будет исключение
+        t = 10
+        t = t / bet
+        # если ставка отрицательная, то делаем её положительной
+        if bet < 0:
+            bet = bet * -1
+
+        c.execute('SELECT * FROM users WHERE user_id=?', (ctx.author.id,))
+        user_data = c.fetchone()
+
+        # проверяем количество баллов пользователя
+        if user_data[1] >= bet:
+            number = random.randint(100, 999)
+            # считаем количество одинаковых цифр
+            count_figure = max_count_figure(number)
+
+            if count_figure == 1:
+                c.execute("UPDATE users SET points=? WHERE user_id=?", (user_data[1] - bet, ctx.author.id))
+                if bet >= 1000:
+                    await ctx.reply(f'Выпало число {number} \nВы проиграли {bet} баллов ))))')
+                else:
+                    await ctx.reply(f'Выпало число {number} \nВы проиграли {bet} баллов')
+
+            elif count_figure == 2:
+                c.execute("UPDATE users SET points=? WHERE user_id=?",
+                          (user_data[1] + ((bet * 1.5) // 1), ctx.author.id))
+                await ctx.reply(f'Выпало число {number} \nВы выиграли {int((bet * 1.5) // 1)} баллов!')
+
+            elif count_figure == 3:
+                c.execute("UPDATE users SET points=? WHERE user_id=?", (user_data[1] + (bet * 3), ctx.author.id))
+                await ctx.reply(f'Выпало число {number} \nВы выиграли {bet * 3} баллов!')
+
+        else:
+            await ctx.reply('У вас не хватает баллов для этой ставки')
+    except:
+        await ctx.reply('Вы ввели некорректную ставку')
 
 
 bot.run(config.token)
